@@ -27,6 +27,13 @@ export function formatCurrencyRD(amount: number | undefined | null): string {
 }
 
 /**
+ * Alias for formatCurrencyRD for compatibility.
+ * @param amount The number to format.
+ * @returns The formatted currency string.
+ */
+export const formatCurrency = formatCurrencyRD;
+
+/**
  * Formats a Firestore Timestamp or Date object into a string.
  * @param date Timestamp or Date object.
  * @param formatString Desired date format (default: 'dd/MM/yyyy').

@@ -22,306 +22,13 @@ import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { auth } from '@/lib/firebase'; // Assuming auth is exported from firebase config
 import { getCurrentUser } from '@/lib/auth-utils'; // Helper to get current user
 
-import type { Customer, Invoice, InvoiceItem, NcfType, InvoiceWithCustomer, ErrorResponse } from '@/lib/definitions';
+import type { Customer, Invoice, InvoiceItem, NcfType } from '@/lib/definitions';
 import { ncfTypeDescriptions } from '@/lib/definitions';
 
 // --- Validation Schemas ---
 
 // Basic RNC/Cedula validation (adjust regex as needed for strictness)
 const cedulaRncRegex = /^[0-9]{9,11}$/; // Simple 9 or 11 digit check
-
-// --- Invoice Detail Functions ---
-
-/**
- * Obtiene una factura por su ID junto con los datos del cliente asociado
- */
-/**
- * Obtiene una factura por su ID junto con los datos del cliente asociado
- * @param id ID de la factura a obtener
- * @returns Objeto con la factura y los datos del cliente, o un error
- */
-export async function getInvoiceById(id: string): Promise<InvoiceWithCustomer | ErrorResponse> {
-  try {
-    const user = await getCurrentUser();
-    if (!user) {
-      return { error: 'Usuario no autenticado' };
-    }
-
-    // Obtener la factura
-    const invoiceRef = doc(db, 'invoices', id);
-    const invoiceSnap = await getDoc(invoiceRef);
-    
-    if (!invoiceSnap.exists()) {
-      return { error: 'Factura no encontrada' };
-    }
-    
-    const invoiceData = invoiceSnap.data();
-    
-    // Verificar que la factura pertenece al usuario actual
-    if (invoiceData.userId !== user.uid) {
-      return { error: 'No tienes permiso para ver esta factura' };
-    }
-    
-    // Obtener los datos del cliente
-    let customerData = null;
-    if (invoiceData.customerId) {
-      const customerRef = doc(db, 'customers', invoiceData.customerId);
-      const customerSnap = await getDoc(customerRef);
-      if (customerSnap.exists()) {
-        customerData = {
-          id: customerSnap.id,
-          ...customerSnap.data()
-        } as Customer;
-      }
-    }
-    
-    // Formatear fechas
-    const invoice = {
-      ...invoiceData,
-      id: invoiceSnap.id,
-      issueDate: invoiceData.issueDate instanceof Timestamp 
-        ? invoiceData.issueDate.toDate() 
-        : new Date(invoiceData.issueDate),
-      dueDate: invoiceData.dueDate instanceof Timestamp 
-        ? invoiceData.dueDate.toDate() 
-        : new Date(invoiceData.dueDate),
-      createdAt: invoiceData.createdAt instanceof Timestamp 
-        ? invoiceData.createdAt.toDate() 
-        : new Date(invoiceData.createdAt)
-    } as Invoice;
-    
-    return {
-      invoice,
-      customer: customerData
-    };
-  } catch (error) {
-    console.error('Error getting invoice:', error);
-    return { error: 'Error al obtener la factura' };
-  }
-}
-
-// --- Statistics Functions ---
-
-export async function getInvoiceStats(period: string = 'month') {
-  try {
-    const user = await getCurrentUser();
-    if (!user) {
-      return { error: 'Usuario no autenticado' };
-    }
-
-    // Definir fechas para el período seleccionado
-    const now = new Date();
-    let startDate = new Date();
-    let previousStartDate = new Date();
-    let previousEndDate = new Date();
-    
-    switch (period) {
-      case 'month':
-        // Mes actual
-        startDate = new Date(now.getFullYear(), now.getMonth(), 1);
-        // Mes anterior
-        previousStartDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-        previousEndDate = new Date(now.getFullYear(), now.getMonth(), 0);
-        break;
-      case 'quarter':
-        // Trimestre actual
-        const currentQuarter = Math.floor(now.getMonth() / 3);
-        startDate = new Date(now.getFullYear(), currentQuarter * 3, 1);
-        // Trimestre anterior
-        previousStartDate = new Date(now.getFullYear(), (currentQuarter - 1) * 3, 1);
-        previousEndDate = new Date(now.getFullYear(), currentQuarter * 3, 0);
-        break;
-      case 'year':
-        // Año actual
-        startDate = new Date(now.getFullYear(), 0, 1);
-        // Año anterior
-        previousStartDate = new Date(now.getFullYear() - 1, 0, 1);
-        previousEndDate = new Date(now.getFullYear(), 0, 0);
-        break;
-    }
-
-    // Consultar facturas del período actual
-    const invoicesRef = collection(db, 'invoices');
-    const currentPeriodQuery = query(
-      invoicesRef,
-      where('userId', '==', user.uid),
-      where('issueDate', '>=', startDate),
-      where('issueDate', '<=', now)
-    );
-    
-    // Consultar facturas del período anterior para comparación
-    const previousPeriodQuery = query(
-      invoicesRef,
-      where('userId', '==', user.uid),
-      where('issueDate', '>=', previousStartDate),
-      where('issueDate', '<=', previousEndDate)
-    );
-
-    const [currentInvoicesSnapshot, previousInvoicesSnapshot] = await Promise.all([
-      getDocs(currentPeriodQuery),
-      getDocs(previousPeriodQuery)
-    ]);
-
-    // Procesar datos del período actual
-    const currentInvoices = currentInvoicesSnapshot.docs.map(doc => {
-      const data = doc.data();
-      return {
-        ...data,
-        id: doc.id,
-        issueDate: data.issueDate instanceof Timestamp ? data.issueDate.toDate() : new Date(data.issueDate),
-        total: calculateInvoiceTotal(data)
-      };
-    });
-
-    // Procesar datos del período anterior
-    const previousInvoices = previousInvoicesSnapshot.docs.map(doc => {
-      const data = doc.data();
-      return {
-        ...data,
-        id: doc.id,
-        issueDate: data.issueDate instanceof Timestamp ? data.issueDate.toDate() : new Date(data.issueDate),
-        total: calculateInvoiceTotal(data)
-      };
-    });
-
-    // Calcular totales y promedios
-    const currentTotalBilled = currentInvoices.reduce((sum, invoice) => sum + invoice.total, 0);
-    const previousTotalBilled = previousInvoices.reduce((sum, invoice) => sum + invoice.total, 0);
-    
-    const currentInvoiceCount = currentInvoices.length;
-    const previousInvoiceCount = previousInvoices.length;
-    
-    const currentAverageInvoice = currentInvoiceCount > 0 ? currentTotalBilled / currentInvoiceCount : 0;
-    const previousAverageInvoice = previousInvoiceCount > 0 ? previousTotalBilled / previousInvoiceCount : 0;
-
-    // Calcular tendencias (porcentaje de cambio)
-    const calculateTrend = (current: number, previous: number) => {
-      if (previous === 0) return current > 0 ? 100 : 0;
-      return Number((((current - previous) / previous) * 100).toFixed(1));
-    };
-
-    const billingTrend = calculateTrend(currentTotalBilled, previousTotalBilled);
-    const invoiceTrend = calculateTrend(currentInvoiceCount, previousInvoiceCount);
-    const averageTrend = calculateTrend(currentAverageInvoice, previousAverageInvoice);
-
-    // Preparar datos para gráficos
-    const billingByPeriod = prepareBillingByPeriodData(currentInvoices, period);
-    const invoicesByStatus = prepareInvoicesByStatusData(currentInvoices);
-
-    return {
-      data: {
-        totalBilled: currentTotalBilled,
-        invoiceCount: currentInvoiceCount,
-        averageInvoice: currentAverageInvoice,
-        billingTrend,
-        invoiceTrend,
-        averageTrend,
-        billingByPeriod,
-        invoicesByStatus
-      }
-    };
-  } catch (error) {
-    console.error('Error getting invoice stats:', error);
-    return { error: 'Error al obtener estadísticas de facturación' };
-  }
-}
-
-// Función auxiliar para calcular el total de una factura
-function calculateInvoiceTotal(invoice: any) {
-  if (!invoice.items || !Array.isArray(invoice.items)) return 0;
-  
-  const subtotal = invoice.items.reduce((sum: number, item: any) => {
-    return sum + (Number(item.price) * Number(item.quantity));
-  }, 0);
-  
-  const taxRate = invoice.taxRate ? Number(invoice.taxRate) : 0;
-  const tax = subtotal * (taxRate / 100);
-  
-  return subtotal + tax;
-}
-
-// Función para preparar datos de facturación por período
-function prepareBillingByPeriodData(invoices: any[], period: string) {
-  if (invoices.length === 0) return [];
-  
-  const data: { name: string; amount: number }[] = [];
-  const now = new Date();
-  
-  switch (period) {
-    case 'month':
-      // Agrupar por día del mes
-      const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-      for (let day = 1; day <= daysInMonth; day++) {
-        const dayInvoices = invoices.filter(inv => inv.issueDate.getDate() === day);
-        const dayTotal = dayInvoices.reduce((sum, inv) => sum + inv.total, 0);
-        data.push({ name: `Día ${day}`, amount: dayTotal });
-      }
-      break;
-      
-    case 'quarter':
-      // Agrupar por mes del trimestre
-      const currentQuarter = Math.floor(now.getMonth() / 3);
-      const quarterMonths = [currentQuarter * 3, currentQuarter * 3 + 1, currentQuarter * 3 + 2];
-      const monthNames = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
-      
-      quarterMonths.forEach(monthIndex => {
-        const monthInvoices = invoices.filter(inv => inv.issueDate.getMonth() === monthIndex);
-        const monthTotal = monthInvoices.reduce((sum, inv) => sum + inv.total, 0);
-        data.push({ name: monthNames[monthIndex], amount: monthTotal });
-      });
-      break;
-      
-    case 'year':
-      // Agrupar por mes del año
-      const monthNames2 = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
-      
-      for (let month = 0; month < 12; month++) {
-        const monthInvoices = invoices.filter(inv => inv.issueDate.getMonth() === month);
-        const monthTotal = monthInvoices.reduce((sum, inv) => sum + inv.total, 0);
-        data.push({ name: monthNames2[month], amount: monthTotal });
-      }
-      break;
-  }
-  
-  return data;
-}
-
-// Función para preparar datos de facturas por estado
-function prepareInvoicesByStatusData(invoices: any[]) {
-  const statusCounts: Record<string, number> = {
-    'paid': 0,
-    'pending': 0,
-    'overdue': 0,
-    'draft': 0,
-    'cancelled': 0
-  };
-  
-  // Contar facturas por estado
-  invoices.forEach(invoice => {
-    const status = invoice.status || 'pending';
-    if (statusCounts[status] !== undefined) {
-      statusCounts[status]++;
-    } else {
-      statusCounts[status] = 1;
-    }
-  });
-  
-  // Convertir a formato para gráfico
-  const statusLabels: Record<string, string> = {
-    'paid': 'Pagadas',
-    'pending': 'Pendientes',
-    'overdue': 'Vencidas',
-    'draft': 'Borradores',
-    'cancelled': 'Canceladas'
-  };
-  
-  return Object.entries(statusCounts)
-    .filter(([_, count]) => count > 0)
-    .map(([status, count]) => ({
-      name: statusLabels[status] || status,
-      value: count
-    }));
-}
 
 const CustomerSchema = z.object({
   name: z.string().min(1, { message: "El nombre es requerido." }),
@@ -722,7 +429,36 @@ export async function getInvoices(): Promise<Invoice[]> {
     }
 }
 
-// Esta función ha sido reemplazada por la versión mejorada al inicio del archivo
+export async function getInvoiceById(id: string): Promise<Invoice | null> {
+    const user = await getCurrentUser();
+    if (!user) return null;
+
+    try {
+        const invoiceDocRef = doc(db, 'users', user.uid, 'invoices', id);
+        const docSnap = await getDoc(invoiceDocRef);
+
+        if (docSnap.exists()) {
+             const data = docSnap.data();
+             return {
+                 id: docSnap.id,
+                 ...data,
+                 issueDate: data.issueDate instanceof Timestamp ? data.issueDate.toDate() : data.issueDate,
+                 dueDate: data.dueDate instanceof Timestamp ? data.dueDate.toDate() : data.dueDate,
+                 createdAt: data.createdAt instanceof Timestamp ? data.createdAt.toDate() : data.createdAt,
+                 updatedAt: data.updatedAt instanceof Timestamp ? data.updatedAt.toDate() : data.updatedAt,
+                 subTotal: Number(data.subTotal || 0),
+                 itbisAmount: Number(data.itbisAmount || 0),
+                 totalAmount: Number(data.totalAmount || 0),
+             } as Invoice;
+        } else {
+            console.log("No such invoice document!");
+            return null;
+        }
+    } catch (error) {
+        console.error("Firestore Error fetching invoice by ID:", error);
+        return null;
+    }
+}
 
 export async function getInvoicesByCustomerId(customerId: string): Promise<Invoice[]> {
     const user = await getCurrentUser();
@@ -756,113 +492,102 @@ export async function getInvoicesByCustomerId(customerId: string): Promise<Invoi
 
 export async function downloadInvoicePdf(invoiceId: string): Promise<{ url?: string; error?: string }> {
   const user = await getCurrentUser();
-  if (!user) {
-    return { error: "Usuario no autenticado." };
-  }
+  if (!user) return { error: "Usuario no autenticado." };
 
   try {
     // Fetch the invoice data
-    const invoiceData = await getInvoiceById(invoiceId);
-    
-    if ('error' in invoiceData) {
-      return { error: invoiceData.error };
+    const invoice = await getInvoiceById(invoiceId);
+    if (!invoice) {
+      return { error: "Factura no encontrada." };
     }
 
     // Fetch customer data
-    const customer = await getCustomerById(invoiceData.invoice.customerId);
+    const customer = await getCustomerById(invoice.customerId);
     if (!customer) {
       return { error: "Cliente no encontrado." };
     }
-    
+
     // Import PDF utilities
     const { generateInvoicePdf } = await import('@/lib/pdf-utils');
     
     // Generate PDF blob
-    const pdfBlob = await generateInvoicePdf(invoiceData.invoice, customer);
-    
-    // Convertir Blob a Buffer para Firebase Storage
-    const arrayBuffer = await pdfBlob.arrayBuffer();
-    const pdfBuffer = Buffer.from(arrayBuffer);
+    const pdfBlob = generateInvoicePdf(invoice, customer);
     
     // Upload to Firebase Storage
-    const storageRef = ref(storage, `users/${user.uid}/invoices/${invoiceId}/${invoiceData.invoice.invoiceNumber}.pdf`);
-    await uploadBytes(storageRef, pdfBuffer);
+    const storageRef = ref(storage, `users/${user.uid}/invoices/${invoiceId}/${invoice.invoiceNumber}.pdf`);
+    await uploadBytes(storageRef, pdfBlob);
     
     // Get download URL
-    const url = await getDownloadURL(storageRef);
+    const downloadURL = await getDownloadURL(storageRef);
     
-    return { url };
+    return { url: downloadURL };
   } catch (error) {
     console.error("Error generating PDF:", error);
-    return { error: "Error al generar el PDF." };
+    return { error: "Error al generar el PDF de la factura." };
   }
 }
 
 export async function sendInvoiceByEmail(invoiceId: string, email: string): Promise<{ success?: boolean; error?: string; previewUrl?: string }> {
-  const user = await getCurrentUser();
-  if (!user) {
-    return { error: "Usuario no autenticado." };
-  }
+    const user = await getCurrentUser();
+    if (!user) return { error: "Usuario no autenticado." };
 
-  try {
-    // Validate email
-    if (!email || !email.match(/^[^\s@]+@[^\s@]+\.[^\s@]+$/)) {
-      return { error: "Dirección de correo electrónico inválida." };
+    try {
+        // Fetch the invoice data
+        const invoice = await getInvoiceById(invoiceId);
+        if (!invoice) {
+            return { error: "Factura no encontrada." };
+        }
+
+        // Fetch customer data
+        const customer = await getCustomerById(invoice.customerId);
+        if (!customer) {
+            return { error: "Cliente no encontrado." };
+        }
+
+        // Generate PDF or get existing one
+        let pdfUrl;
+        let pdfBuffer;
+
+        try {
+            // Try to get existing PDF
+            const storageRef = ref(storage, `users/${user.uid}/invoices/${invoiceId}/${invoice.invoiceNumber}.pdf`);
+            pdfUrl = await getDownloadURL(storageRef);
+            
+            // Fetch the PDF as buffer
+            const response = await fetch(pdfUrl);
+            pdfBuffer = Buffer.from(await response.arrayBuffer());
+        } catch (error) {
+            // PDF doesn't exist, generate a new one
+            const { generateInvoicePdf } = await import('@/lib/pdf-utils');
+            const pdfBlob = generateInvoicePdf(invoice, customer);
+            
+            // Convert blob to buffer
+            const arrayBuffer = await pdfBlob.arrayBuffer();
+            pdfBuffer = Buffer.from(arrayBuffer);
+            
+            // Upload to Firebase Storage
+            const storageRef = ref(storage, `users/${user.uid}/invoices/${invoiceId}/${invoice.invoiceNumber}.pdf`);
+            await uploadBytes(storageRef, pdfBuffer);
+            pdfUrl = await getDownloadURL(storageRef);
+        }
+
+        // Send email with PDF attachment
+        const { sendInvoiceEmail } = await import('@/lib/email-utils');
+        const result = await sendInvoiceEmail(invoice, email, pdfBuffer, user.displayName || undefined);
+        
+        if (!result.success) {
+            return { error: result.error || "Error al enviar el correo electrónico." };
+        }
+        
+        return { 
+            success: true, 
+            previewUrl: result.previewUrl // Only available in development
+        };
+    } catch (error) {
+        console.error("Error sending email:", error);
+        return { error: "Error al enviar el correo electrónico." };
     }
-
-    // Fetch the invoice data
-    const invoiceData = await getInvoiceById(invoiceId);
-    if ('error' in invoiceData) {
-      return { error: invoiceData.error };
-    }
-
-    // Fetch customer data
-    const customer = await getCustomerById(invoiceData.invoice.customerId);
-    if (!customer) {
-      return { error: "Cliente no encontrado." };
-    }
-
-    // Import PDF and email utilities
-    const { generateInvoicePdf } = await import('@/lib/pdf-utils');
-    const { sendInvoiceEmail } = await import('@/lib/email-utils');
-    
-    // Generate PDF
-    const pdfBlob = await generateInvoicePdf(invoiceData.invoice, customer);
-    
-    // Convertir Blob a Buffer
-    const arrayBuffer = await pdfBlob.arrayBuffer();
-    const pdfBuffer = Buffer.from(arrayBuffer);
-    
-    // Send email
-    const emailResult = await sendInvoiceEmail(
-      invoiceData.invoice,
-      email,
-      pdfBuffer,
-      user.displayName || undefined
-    );
-
-    if (emailResult.error) {
-      return { error: emailResult.error };
-    }
-
-    // Upload PDF to Firebase Storage for preview
-    const storageRef = ref(storage, `users/${user.uid}/invoices/${invoiceId}/${invoiceData.invoice.invoiceNumber}_email_${Date.now()}.pdf`);
-    await uploadBytes(storageRef, Buffer.from(arrayBuffer));
-    
-    // Get preview URL
-    const previewUrl = await getDownloadURL(storageRef);
-    
-    return { 
-      success: true,
-      previewUrl
-    };
-  } catch (error) {
-    console.error("Error sending invoice by email:", error);
-    return { error: "Error al enviar la factura por correo electrónico." };
-  }
 }
-
-// --- Backup and Export Functions ---
 
 export async function backupDataToDrive(): Promise<{ success?: boolean; error?: string; downloadUrl?: string }> {
     const user = await getCurrentUser();

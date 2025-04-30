@@ -2,22 +2,23 @@
 import { initializeApp, getApps, getApp, FirebaseApp } from "firebase/app";
 import { getFirestore, Firestore } from "firebase/firestore";
 import { getAuth, Auth } from "firebase/auth";
+import { getStorage, FirebaseStorage } from "firebase/storage";
 
 // Your web app's Firebase configuration
-// IMPORTANT: Replace with your actual Firebase configuration values
 const firebaseConfig = {
-  apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
-  authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
-  projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
-  storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
-  appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID
+  apiKey: "AIzaSyAfgoCCaUhG4pfhgtLaAhAHa6bbUTsVMEw",
+  authDomain: "invoicify-q1uzp.firebaseapp.com",
+  projectId: "invoicify-q1uzp",
+  storageBucket: "invoicify-q1uzp.firebasestorage.app",
+  messagingSenderId: "966783409208",
+  appId: "1:966783409208:web:cefeed3c12c72a30c6dacd"
 };
 
 // Initialize Firebase
 let app: FirebaseApp;
 let db: Firestore;
 let auth: Auth;
+let storage: FirebaseStorage;
 
 if (!getApps().length) {
   app = initializeApp(firebaseConfig);
@@ -27,6 +28,6 @@ if (!getApps().length) {
 
 db = getFirestore(app);
 auth = getAuth(app);
+storage = getStorage(app);
 
-
-export { db, auth, app };
+export { db, auth, app, storage };

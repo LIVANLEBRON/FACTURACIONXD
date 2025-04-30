@@ -12,13 +12,14 @@ export type Customer = {
 };
 
 export type InvoiceItem = {
-  id: string;
+  id?: string;
   description: string;
   quantity: number;
   unitPrice: number;
+  price: number; // Precio unitario (alias para compatibilidad)
 };
 
-export type InvoiceStatus = 'draft' | 'sent' | 'paid' | 'cancelled';
+export type InvoiceStatus = 'draft' | 'sent' | 'paid' | 'cancelled' | 'pending' | 'overdue';
 
 // NCF Types for Dominican Republic
 export type NcfType =
@@ -50,10 +51,11 @@ export type Invoice = {
   issueDate: Timestamp | Date; // Use Firestore Timestamp or Date
   dueDate: Timestamp | Date; // Use Firestore Timestamp or Date
   items: InvoiceItem[];
-  subTotal: number; // Sum of items before tax
-  itbisRate: number; // e.g., 0.18
-  itbisAmount: number; // Calculated ITBIS
-  totalAmount: number; // subTotal + itbisAmount
+  subTotal?: number; // Sum of items before tax
+  itbisRate?: number; // e.g., 0.18
+  itbisAmount?: number; // Calculated ITBIS
+  totalAmount?: number; // subTotal + itbisAmount
+  taxRate?: number; // Tasa de impuesto (alias para compatibilidad)
   status: InvoiceStatus;
   notes?: string;
   ncfType?: NcfType; // Optional NCF Type
@@ -61,4 +63,16 @@ export type Invoice = {
   createdAt: Timestamp | Date;
   updatedAt: Timestamp | Date;
   userId: string; // Link invoice to the user who created it
+};
+
+// Tipo para la respuesta de getInvoiceById
+export type InvoiceWithCustomer = {
+  invoice: Invoice;
+  customer: Customer | null;
+  error?: string;
+};
+
+// Tipo para respuestas de error
+export type ErrorResponse = {
+  error: string;
 };
