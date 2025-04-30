@@ -3,7 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { MoreHorizontal, Pencil, Trash2 } from "lucide-react";
+import { MoreHorizontal, Pencil, Trash2, Eye } from "lucide-react"; // Added Eye icon
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -58,7 +58,7 @@ export function CustomersTable({ customers }: CustomersTableProps) {
     setIsDeleting(id); // Indicate deletion start for this ID
     try {
       const result = await deleteCustomer(id);
-      if (result.message) {
+      if (result?.message) { // Check if result and message exist
         toast({
           title: result.message.includes("Error") ? "Error" : "Éxito",
           description: result.message,
@@ -67,6 +67,12 @@ export function CustomersTable({ customers }: CustomersTableProps) {
         if (!result.message.includes("Error")) {
           router.refresh(); // Refresh data on success
         }
+      } else {
+         toast({
+             title: "Error",
+             description: "Ocurrió un error inesperado al eliminar el cliente.",
+             variant: "destructive",
+         });
       }
     } catch (error) {
       toast({
@@ -89,9 +95,10 @@ export function CustomersTable({ customers }: CustomersTableProps) {
       <TableHeader>
         <TableRow>
           <TableHead>Nombre</TableHead>
+          <TableHead className="hidden sm:table-cell">Cédula/RNC</TableHead>
           <TableHead className="hidden md:table-cell">Email</TableHead>
-          <TableHead className="hidden md:table-cell">Teléfono</TableHead>
-          <TableHead className="hidden lg:table-cell">Dirección</TableHead>
+          <TableHead className="hidden lg:table-cell">Teléfono</TableHead>
+          {/* <TableHead className="hidden lg:table-cell">Dirección</TableHead> */}
           <TableHead>
             <span className="sr-only">Acciones</span>
           </TableHead>
@@ -101,9 +108,10 @@ export function CustomersTable({ customers }: CustomersTableProps) {
         {customers.map((customer) => (
           <TableRow key={customer.id}>
             <TableCell className="font-medium">{customer.name}</TableCell>
+            <TableCell className="hidden sm:table-cell">{customer.cedula_rnc || '-'}</TableCell>
             <TableCell className="hidden md:table-cell">{customer.email || '-'}</TableCell>
-            <TableCell className="hidden md:table-cell">{customer.phone || '-'}</TableCell>
-            <TableCell className="hidden lg:table-cell">{customer.address || '-'}</TableCell>
+            <TableCell className="hidden lg:table-cell">{customer.phone || '-'}</TableCell>
+            {/* <TableCell className="hidden lg:table-cell">{customer.address || '-'}</TableCell> */}
             <TableCell>
               <AlertDialog>
                  <DropdownMenu>
@@ -119,6 +127,11 @@ export function CustomersTable({ customers }: CustomersTableProps) {
                    </DropdownMenuTrigger>
                    <DropdownMenuContent align="end">
                      <DropdownMenuLabel>Acciones</DropdownMenuLabel>
+                      <DropdownMenuItem asChild>
+                        <Link href={`/customers/${customer.id}/history`} className="flex items-center gap-2 cursor-pointer">
+                           <Eye className="h-4 w-4" /> Ver Historial
+                        </Link>
+                      </DropdownMenuItem>
                      <DropdownMenuItem asChild>
                        <Link href={`/customers/${customer.id}/edit`} className="flex items-center gap-2 cursor-pointer">
                          <Pencil className="h-4 w-4" /> Editar
@@ -140,7 +153,7 @@ export function CustomersTable({ customers }: CustomersTableProps) {
                     <AlertDialogTitle>¿Estás seguro?</AlertDialogTitle>
                     <AlertDialogDescription>
                       Esta acción no se puede deshacer. Esto eliminará permanentemente al cliente
-                      "{customer.name}" y cualquier dato asociado (¡asegúrate de manejar esto si tienes facturas vinculadas!).
+                      "{customer.name}". Las facturas asociadas no se eliminarán, pero quedarán sin cliente vinculado directamente aquí.
                     </AlertDialogDescription>
                   </AlertDialogHeader>
                   <AlertDialogFooter>

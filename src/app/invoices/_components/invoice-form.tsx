@@ -35,12 +35,15 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { cn } from "@/lib/utils";
+import { cn, formatCurrencyRD } from "@/lib/utils"; // Import RD$ formatter
 import { useToast } from "@/hooks/use-toast";
-import type { Customer, Invoice, InvoiceItem, InvoiceStatus } from "@/lib/definitions";
+import type { Customer, Invoice, InvoiceItem, InvoiceStatus, NcfType } from "@/lib/definitions";
+import { ncfTypeDescriptions } from "@/lib/definitions"; // Import NCF descriptions
 import { addInvoice, updateInvoice } from "@/lib/actions";
 import { Separator } from "@/components/ui/separator";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+
+const ITBIS_RATE = 0.18; // Define ITBIS rate
 
 const invoiceItemSchema = z.object({
   id: z.string().optional(), // Keep track of existing items
@@ -57,7 +60,16 @@ const formSchema = z.object({
   items: z.array(invoiceItemSchema).min(1, "Se requiere al menos un item"),
   notes: z.string().optional(),
   status: z.enum(["draft", "sent", "paid", "cancelled"]).default("draft"),
+  ncfType: z.enum(Object.keys(ncfTypeDescriptions) as [NcfType, ...NcfType[]]).optional(),
+  ncf: z.string().optional(), // Add more specific validation if needed (e.g., length, format)
+}).refine(data => !!data.ncfType === !!data.ncf, {
+    message: "Debe proporcionar el Tipo de Comprobante y el NCF, o ninguno.",
+    path: ["ncfType"], // Attach error to one of the fields
+}).refine(data => !data.ncf || (data.ncf && data.ncf.trim().length > 0), {
+    message: "NCF no puede estar vacío si se selecciona un tipo.",
+    path: ["ncf"],
 });
+
 
 type InvoiceFormValues = z.infer<typeof formSchema>;
 
@@ -77,6 +89,8 @@ export function InvoiceForm({ invoice, customers }: InvoiceFormProps) {
   const router = useRouter();
   const { toast } = useToast();
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [subTotal, setSubTotal] = useState(0);
+  const [itbisAmount, setItbisAmount] = useState(0);
   const [total, setTotal] = useState(0);
 
   const formAction = invoice?.id ? updateInvoice.bind(null, invoice.id) : addInvoice;
@@ -93,6 +107,8 @@ export function InvoiceForm({ invoice, customers }: InvoiceFormProps) {
       items: invoice?.items?.map(item => ({...item})) || [{ description: "", quantity: 1, unitPrice: 0 }],
       notes: invoice?.notes || "",
       status: invoice?.status || "draft",
+      ncfType: invoice?.ncfType || undefined,
+      ncf: invoice?.ncf || "",
     },
   });
 
@@ -101,35 +117,38 @@ export function InvoiceForm({ invoice, customers }: InvoiceFormProps) {
     name: "items",
   });
 
-  // Recalculate total whenever items change
+  // Recalculate totals whenever items change
   useEffect(() => {
-    const subscription = form.watch((value, { name }) => {
-      if (name && name.startsWith("items")) {
-        const items = value.items || [];
-        const newTotal = items.reduce((sum, item) => {
+    const calculateTotals = (items: InvoiceItem[]) => {
+        const currentSubTotal = items.reduce((sum, item) => {
             const quantity = Number(item?.quantity) || 0;
             const price = Number(item?.unitPrice) || 0;
             return sum + quantity * price;
         }, 0);
-        setTotal(newTotal);
+        const currentItbisAmount = currentSubTotal * ITBIS_RATE;
+        const currentTotal = currentSubTotal + currentItbisAmount;
+
+        setSubTotal(currentSubTotal);
+        setItbisAmount(currentItbisAmount);
+        setTotal(currentTotal);
+    }
+
+    const subscription = form.watch((value, { name }) => {
+      if (name && name.startsWith("items")) {
+        calculateTotals(value.items || []);
       }
     });
+
     // Calculate initial total
-    const initialItems = form.getValues('items');
-    const initialTotal = initialItems.reduce((sum, item) => {
-        const quantity = Number(item?.quantity) || 0;
-        const price = Number(item?.unitPrice) || 0;
-        return sum + quantity * price;
-    }, 0);
-    setTotal(initialTotal);
+    calculateTotals(form.getValues('items'));
 
     return () => subscription.unsubscribe();
-  }, [form, setTotal]);
+  }, [form, setTotal, setSubTotal, setItbisAmount]); // Add setters to dependency array
 
 
     // Effect to handle form submission response
     useEffect(() => {
-      if (state.message) {
+      if (state?.message) { // Check if state exists
         toast({
           title: state.success ? (invoice?.id ? "Factura Actualizada" : "Factura Creada") : "Error",
           description: state.message,
@@ -139,14 +158,18 @@ export function InvoiceForm({ invoice, customers }: InvoiceFormProps) {
           router.push("/invoices");
           router.refresh(); // Refresh server components
         }
-        setIsSubmitting(false); // Reset submitting state after toast
-      }
+       }
        // If there are validation errors from the server action, set them in the form
-       if (state.errors) {
+       if (state?.errors) {
            Object.entries(state.errors).forEach(([fieldName, errors]) => {
                // Need to handle array field errors potentially differently
                if (fieldName === 'items' && Array.isArray(errors)) {
-                   // Handle item errors if needed, RHF might handle nested errors automatically
+                  if(typeof errors[0] === 'string'){ // Simple root message for items array
+                     form.setError('items', { type: 'server', message: errors.join(', ') });
+                  } else {
+                     // TODO: Handle potential nested errors if server sends them per item index
+                  }
+
                } else if (typeof fieldName === 'string' && Array.isArray(errors) && errors.length > 0) {
                     // @ts-ignore - Allowing dynamic field name setting
                    form.setError(fieldName as keyof InvoiceFormValues, {
@@ -155,8 +178,8 @@ export function InvoiceForm({ invoice, customers }: InvoiceFormProps) {
                    });
                }
            });
-           setIsSubmitting(false); // Reset submitting state if there are errors
        }
+       setIsSubmitting(false); // Reset submitting state after handling response/errors
 
     }, [state, toast, router, invoice?.id, form]);
 
@@ -167,13 +190,16 @@ export function InvoiceForm({ invoice, customers }: InvoiceFormProps) {
 
         // Append standard fields
         Object.entries(data).forEach(([key, value]) => {
-          if (key !== 'items' && value !== undefined && value !== null) {
+          if (key !== 'items' && value !== undefined && value !== null && value !== '') {
              if (value instanceof Date) {
-               // Format date consistently, e.g., ISO string
                formData.append(key, value.toISOString());
              } else {
                formData.append(key, String(value));
              }
+          } else if (key === 'ncf' && !data.ncfType) {
+             // Don't append empty NCF if no type is selected
+          } else if (key === 'ncfType' && !value) {
+             // Don't append empty ncfType
           }
         });
 
@@ -204,7 +230,7 @@ export function InvoiceForm({ invoice, customers }: InvoiceFormProps) {
                   <SelectContent>
                     {customers.map((customer) => (
                       <SelectItem key={customer.id} value={customer.id}>
-                        {customer.name}
+                        {customer.name} {customer.cedula_rnc ? `(${customer.cedula_rnc})` : ''}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -220,7 +246,7 @@ export function InvoiceForm({ invoice, customers }: InvoiceFormProps) {
               <FormItem>
                 <FormLabel>Número de Factura *</FormLabel>
                 <FormControl>
-                  <Input placeholder="Ej: INV-001" {...field} disabled={isSubmitting} />
+                  <Input placeholder="Ej: F-001" {...field} disabled={isSubmitting} />
                 </FormControl>
                 <FormMessage />
               </FormItem>
@@ -310,20 +336,73 @@ export function InvoiceForm({ invoice, customers }: InvoiceFormProps) {
           />
         </div>
 
+        {/* NCF Fields */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <FormField
+              control={form.control}
+              name="ncfType"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Tipo Comprobante Fiscal (NCF)</FormLabel>
+                  <Select onValueChange={(value) => {
+                      field.onChange(value);
+                      if (!value) form.setValue('ncf', ''); // Clear NCF if type is cleared
+                     }}
+                     value={field.value || ''} // Use value instead of defaultValue for controlled component
+                     disabled={isSubmitting}
+                   >
+                    <FormControl>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Selecciona un tipo (Opcional)" />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      <SelectItem value="">Ninguno</SelectItem>
+                      {Object.entries(ncfTypeDescriptions).map(([code, description]) => (
+                        <SelectItem key={code} value={code}>
+                          {code} - {description}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+           <FormField
+             control={form.control}
+             name="ncf"
+             render={({ field }) => (
+               <FormItem>
+                 <FormLabel>Número de Comprobante Fiscal (NCF)</FormLabel>
+                 <FormControl>
+                   <Input
+                     placeholder="Ej: B0100000001"
+                     {...field}
+                     disabled={isSubmitting || !form.watch('ncfType')} // Disable if no type selected
+                   />
+                 </FormControl>
+                 <FormMessage />
+               </FormItem>
+             )}
+           />
+        </div>
+
+
         <Separator />
 
         {/* Invoice Items */}
         <div className="space-y-4">
             <h3 className="text-lg font-medium">Items de la Factura</h3>
-             <FormMessage>{form.formState.errors.items?.root?.message}</FormMessage>
+             <FormMessage>{form.formState.errors.items?.message}</FormMessage> {/* Display root items error */}
             <div className="overflow-x-auto">
                <Table>
                  <TableHeader>
                    <TableRow>
-                     <TableHead className="w-[50%]">Descripción</TableHead>
-                     <TableHead>Cantidad</TableHead>
-                     <TableHead>Precio Unit.</TableHead>
-                     <TableHead>Subtotal</TableHead>
+                     <TableHead className="w-[50%]">Descripción *</TableHead>
+                     <TableHead>Cantidad *</TableHead>
+                     <TableHead>Precio Unit. *</TableHead>
+                     <TableHead className="text-right">Subtotal</TableHead>
                      <TableHead className="w-[50px]">Acción</TableHead>
                    </TableRow>
                  </TableHeader>
@@ -331,7 +410,7 @@ export function InvoiceForm({ invoice, customers }: InvoiceFormProps) {
                     {fields.map((item, index) => {
                         const quantity = form.watch(`items.${index}.quantity`) || 0;
                         const unitPrice = form.watch(`items.${index}.unitPrice`) || 0;
-                        const subtotal = (quantity * unitPrice).toFixed(2);
+                        const itemSubtotal = (quantity * unitPrice);
 
                        return (
                          <TableRow key={item.id}>
@@ -377,8 +456,8 @@ export function InvoiceForm({ invoice, customers }: InvoiceFormProps) {
                                )}
                              />
                            </TableCell>
-                           <TableCell className="text-right">
-                                {subtotal}
+                           <TableCell className="text-right tabular-nums">
+                                {formatCurrencyRD(itemSubtotal)}
                            </TableCell>
                            <TableCell>
                              <Button
@@ -434,13 +513,33 @@ export function InvoiceForm({ invoice, customers }: InvoiceFormProps) {
              />
 
             <div className="space-y-4 md:text-right">
+                {/* Total Summary */}
+                <div className="space-y-1 text-sm">
+                    <div className="flex justify-between">
+                        <span>Subtotal:</span>
+                        <span className="font-medium tabular-nums">{formatCurrencyRD(subTotal)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                        <span>ITBIS ({ITBIS_RATE * 100}%):</span>
+                        <span className="font-medium tabular-nums">{formatCurrencyRD(itbisAmount)}</span>
+                    </div>
+                     <Separator className="my-1" />
+                    <div className="flex justify-between text-base font-semibold">
+                        <span>Total:</span>
+                        <span className="tabular-nums">{formatCurrencyRD(total)}</span>
+                    </div>
+                </div>
+
+                 <Separator />
+
+                {/* Status Selector */}
                 <FormField
                   control={form.control}
                   name="status"
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Estado</FormLabel>
-                       <Select onValueChange={field.onChange} defaultValue={field.value} disabled={isSubmitting}>
+                       <Select onValueChange={field.onChange} value={field.value} disabled={isSubmitting}>
                          <FormControl>
                            <SelectTrigger className="w-full md:w-[180px] md:ml-auto">
                              <SelectValue placeholder="Selecciona estado" />
@@ -457,10 +556,6 @@ export function InvoiceForm({ invoice, customers }: InvoiceFormProps) {
                     </FormItem>
                   )}
                 />
-
-               <div className="text-xl font-semibold">
-                 Total: {total.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' })} {/* Adjust currency as needed */}
-               </div>
            </div>
          </div>
 

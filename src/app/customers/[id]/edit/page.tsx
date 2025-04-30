@@ -3,6 +3,7 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/com
 import { CustomerForm } from "../../_components/customer-form";
 import { getCustomerById } from "@/lib/actions";
 import type { Customer } from '@/lib/definitions';
+import AuthGuard from "@/components/auth/auth-guard"; // Import AuthGuard
 
 interface EditCustomerPageProps {
   params: { id: string };
@@ -10,6 +11,7 @@ interface EditCustomerPageProps {
 
 export default async function EditCustomerPage({ params }: EditCustomerPageProps) {
   const id = params.id;
+  // Fetching inside AuthGuard might be better if AuthGuard needs user context
   const customer: Customer | null = await getCustomerById(id);
 
   if (!customer) {
@@ -17,19 +19,21 @@ export default async function EditCustomerPage({ params }: EditCustomerPageProps
   }
 
   return (
-    <div className="space-y-6">
-      <h1 className="text-2xl font-bold">Editar Cliente</h1>
-      <Card>
-        <CardHeader>
-          <CardTitle>Información del Cliente</CardTitle>
-          <CardDescription>
-            Actualice los detalles del cliente.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <CustomerForm customer={customer} />
-        </CardContent>
-      </Card>
-    </div>
+    <AuthGuard>
+        <div className="space-y-6">
+          <h1 className="text-2xl font-bold">Editar Cliente</h1>
+          <Card>
+            <CardHeader>
+              <CardTitle>Información del Cliente</CardTitle>
+              <CardDescription>
+                Actualice los detalles del cliente. Cédula/RNC es opcional.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <CustomerForm customer={customer} />
+            </CardContent>
+          </Card>
+        </div>
+    </AuthGuard>
   );
 }

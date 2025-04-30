@@ -15,7 +15,7 @@ body {
     --card-foreground: 200 18% 30%;
     --popover: 0 0% 100%;
     --popover-foreground: 200 18% 30%;
-    --primary: 174 45% 51%; /* Teal (#4DB6AC) - Used as primary for interactive elements */
+    --primary: 174 48% 50%; /* Teal (#4DB6AC) - Adjusted slightly */
     --primary-foreground: 0 0% 100%; /* White text on Teal */
     --secondary: 200 18% 85%; /* Lighter Grey (#B0BEC5 adjusted slightly lighter for secondary elements) */
     --secondary-foreground: 200 18% 30%; /* Darker Grey text on Lighter Grey */
@@ -28,9 +28,9 @@ body {
     --border: 200 18% 80%; /* Grey border */
     --input: 0 0% 100%; /* White input background */
     --input-border: 200 18% 80%; /* Grey input border */
-    --ring: 174 45% 51%; /* Teal focus ring */
+    --ring: 174 48% 50%; /* Teal focus ring - Adjusted */
 
-    --chart-1: 174 45% 51%; /* Teal */
+    --chart-1: 174 48% 50%; /* Teal - Adjusted */
     --chart-2: 207 89% 70%; /* Lighter Blue */
     --chart-3: 200 18% 60%; /* Medium Grey */
     --chart-4: 174 35% 65%; /* Desaturated Teal */
@@ -41,12 +41,12 @@ body {
     /* Sidebar Specific Colors (can be adjusted if needed, defaults often work well) */
     --sidebar-background: 207 89% 97%; /* Slightly off-white/light blue */
     --sidebar-foreground: 200 18% 30%; /* Dark Grey Text */
-    --sidebar-primary: 174 45% 51%; /* Teal */
+    --sidebar-primary: 174 48% 50%; /* Teal - Adjusted */
     --sidebar-primary-foreground: 0 0% 100%; /* White */
     --sidebar-accent: 174 45% 88%; /* Very light teal/grey */
     --sidebar-accent-foreground: 174 45% 30%; /* Darker teal text on accent */
     --sidebar-border: 200 18% 85%; /* Grey border */
-    --sidebar-ring: 174 45% 51%; /* Teal focus ring */
+    --sidebar-ring: 174 48% 50%; /* Teal focus ring - Adjusted */
   }
 
   .dark {
@@ -57,7 +57,7 @@ body {
     --card-foreground: 200 10% 90%;
     --popover: 200 10% 15%;
     --popover-foreground: 200 10% 90%;
-    --primary: 174 45% 51%; /* Teal */
+    --primary: 174 48% 50%; /* Teal - Adjusted */
     --primary-foreground: 0 0% 10%; /* Dark text on Teal */
     --secondary: 200 10% 25%; /* Medium Dark Grey */
     --secondary-foreground: 200 10% 90%; /* Light Grey text */
@@ -70,9 +70,9 @@ body {
     --border: 200 10% 30%;
     --input: 200 10% 20%;
     --input-border: 200 10% 30%;
-    --ring: 174 45% 51%; /* Teal focus ring */
+    --ring: 174 48% 50%; /* Teal focus ring - Adjusted */
 
-    --chart-1: 174 45% 51%;
+    --chart-1: 174 48% 50%; /* Adjusted */
     --chart-2: 207 50% 60%;
     --chart-3: 200 10% 50%;
     --chart-4: 174 35% 45%;
@@ -81,12 +81,12 @@ body {
     /* Dark Sidebar Specific Colors */
     --sidebar-background: 200 10% 12%;
     --sidebar-foreground: 200 10% 85%;
-    --sidebar-primary: 174 45% 51%;
+    --sidebar-primary: 174 48% 50%; /* Adjusted */
     --sidebar-primary-foreground: 0 0% 10%;
     --sidebar-accent: 200 10% 22%;
     --sidebar-accent-foreground: 174 45% 70%;
     --sidebar-border: 200 10% 25%;
-    --sidebar-ring: 174 45% 51%;
+    --sidebar-ring: 174 48% 50%; /* Adjusted */
   }
 }
 
